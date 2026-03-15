@@ -28,6 +28,12 @@ fn tauri_context() -> tauri::Context {
 }
 
 fn main() {
+    // Work around NVIDIA + WebKitGTK explicit sync issue on Linux/Wayland
+    #[cfg(target_os = "linux")]
+    unsafe {
+        std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+    }
+
     let io = logging::initialize_logger();
 
     // logger is now initialized, we can use log for panics
