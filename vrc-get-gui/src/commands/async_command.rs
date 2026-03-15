@@ -71,11 +71,14 @@ where
         ImplResult::Async(async_fn) => async_fn,
     };
 
-    let event_handler_slot = Arc::new(Mutex::<Option<EventId>>::new(None));
+    let cancel_event_id = Arc::new(Mutex::<Option<EventId>>::new(None));
+    let cancel_event_id_for_task = Arc::clone(&cancel_event_id);
+    let cancel_event_id_for_handler = Arc::clone(&cancel_event_id);
 
-    let window_1 = window.clone();
-    let window_2 = window.clone();
-    let channel_1 = channel.clone();
+    let window_for_emit = window.clone();
+    let window_for_unlisten = window.clone();
+    let window_for_listen = window.clone();
+    let channel_for_cancel = channel.clone();
 
     let handle = tokio::spawn(async move {
         let context = AsyncCommandContext {
@@ -88,6 +91,11 @@ where
             Err(value) => FinishedMessage::Failed(value),
         };
 
+        // Unlisten the cancel handler now that the task is done
+        if let Some(event_id) = cancel_event_id_for_task.lock().unwrap().take() {
+            window.unlisten(event_id);
+        }
+
         if let Err(e) = window.emit(&format!("{channel}:finished"), message) {
             match e {
                 tauri::Error::WebviewNotFound => {}
@@ -96,9 +104,13 @@ where
         }
     });
 
-    *event_handler_slot.lock().unwrap() =
-        Some(window_2.listen(format!("{channel_1}:cancel"), move |_| {
-            window_1.emit(&format!("{channel_1}:cancelled"), ()).ok();
+    *cancel_event_id.lock().unwrap() =
+        Some(window_for_listen.listen(format!("{channel_for_cancel}:cancel"), move |_| {
+            // Unlisten ourselves on cancel
+            if let Some(event_id) = cancel_event_id_for_handler.lock().unwrap().take() {
+                window_for_unlisten.unlisten(event_id);
+            }
+            window_for_emit.emit(&format!("{channel_for_cancel}:cancelled"), ()).ok();
             handle.abort();
         }));
 

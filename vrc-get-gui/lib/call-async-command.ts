@@ -41,20 +41,26 @@ async function callAsyncCommandImpl<A extends unknown[], P, R>(
 ): Promise<R | "cancelled"> {
 	let finishHandler: (message: FinishedMessage<R>) => void;
 
-	const [unlistenProgress, unlistenFinished] = await Promise.all([
-		listen<P>(`${channel}:progress`, (e) => progress(e.payload)),
-		listen<FinishedMessage<R>>(`${channel}:finished`, (e) =>
-			finishHandler?.(e.payload),
-		),
-		listen<void>(`${channel}:cancelled`, () =>
-			finishHandler?.({ type: "Success", value: "cancelled" }),
-		),
-	]);
+	const [unlistenProgress, unlistenFinished, unlistenCancelled] =
+		await Promise.all([
+			listen<P>(`${channel}:progress`, (e) => progress(e.payload)),
+			listen<FinishedMessage<R>>(`${channel}:finished`, (e) =>
+				finishHandler?.(e.payload),
+			),
+			listen<void>(`${channel}:cancelled`, () =>
+				finishHandler?.({ type: "Success", value: "cancelled" }),
+			),
+		]);
+
+	const unlistenAll = () => {
+		unlistenProgress();
+		unlistenFinished();
+		unlistenCancelled();
+	};
 
 	const finishPromise = new Promise<R | "cancelled">((resolve, reject) => {
 		finishHandler = (message) => {
-			unlistenProgress();
-			unlistenFinished();
+			unlistenAll();
 			if (message.type === "Success") {
 				resolve(message.value);
 			} else {
@@ -67,14 +73,12 @@ async function callAsyncCommandImpl<A extends unknown[], P, R>(
 	try {
 		result = await command(channel, ...args);
 	} catch (e) {
-		unlistenProgress();
-		unlistenFinished();
+		unlistenAll();
 		throw e;
 	}
 
 	if (result.type === "Result") {
-		unlistenProgress();
-		unlistenFinished();
+		unlistenAll();
 		return result.value;
 	}
 

@@ -96,7 +96,13 @@ function Page() {
 	useTauriListen<LogEntry>("log", (event) => {
 		const entry = event.payload as LogEntry;
 		const entries = queryClient.getQueryData(utilGetLogEntries.queryKey) ?? [];
-		queryClient.setQueryData(utilGetLogEntries.queryKey, [...entries, entry]);
+		// Cap log entries to prevent unbounded memory growth
+		const MAX_LOG_ENTRIES = 1000;
+		const updated =
+			entries.length >= MAX_LOG_ENTRIES
+				? [...entries.slice(entries.length - MAX_LOG_ENTRIES + 1), entry]
+				: [...entries, entry];
+		queryClient.setQueryData(utilGetLogEntries.queryKey, updated);
 	});
 
 	const shouldShowLogLevel = logsLevel.data ?? [];
